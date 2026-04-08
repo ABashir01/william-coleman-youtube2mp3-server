@@ -172,12 +172,33 @@ The service can be configured with environment variables:
 
 - `YT_DLP_BINARY`
 - `FFMPEG_BINARY`
+- `YT_DLP_PROXY_URL`
+- `YT_DLP_COOKIES_FILE`
+- `YT_DLP_COOKIES_BASE64`
+- `YT_DLP_EXTRA_ARGS`
 - `CONVERSION_TIMEOUT_SECONDS`
 - `MAX_REQUEST_BYTES`
 - `CONVERT_ROUTE_PATH`
 - `HEALTH_ROUTE_PATH`
 - `HOST`
 - `PORT`
+
+### Render-Specific Mitigations
+
+If YouTube starts returning bot or rate-limit errors, the only realistic mitigations at the app layer are:
+
+- provide cookies with `YT_DLP_COOKIES_FILE`
+- provide base64-encoded Netscape cookies with `YT_DLP_COOKIES_BASE64`
+- route traffic through a different egress IP with `YT_DLP_PROXY_URL`
+- pass targeted `yt-dlp` flags with `YT_DLP_EXTRA_ARGS`
+
+Example extra args:
+
+```text
+--impersonate chrome --extractor-args youtube:player_client=tv
+```
+
+These may improve extraction, but they do not guarantee success on a shared-IP host if YouTube is actively rate-limiting that provider.
 
 ## Project Layout
 

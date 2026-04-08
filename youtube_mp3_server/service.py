@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import base64
 from pathlib import Path
 import re
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -73,6 +75,13 @@ def get_runtime_health(settings: Settings) -> dict[str, object]:
                 "available": ffmpeg_available,
             },
         },
+        "config": {
+            "proxy_configured": bool(settings.yt_dlp_proxy_url),
+            "cookies_configured": bool(
+                settings.yt_dlp_cookies_file or settings.yt_dlp_cookies_base64
+            ),
+            "extra_args_configured": bool(settings.yt_dlp_extra_args.strip()),
+        },
     }
 
 
@@ -123,10 +132,32 @@ def sanitize_filename(filename: str | None, fallback: str) -> str:
     return cleaned
 
 
-def build_download_command(url: str, output_template: str, settings: Settings) -> list[str]:
+def _materialize_cookies_file(settings: Settings, temp_dir: Path) -> str | None:
+    if settings.yt_dlp_cookies_file:
+        return settings.yt_dlp_cookies_file
+
+    if not settings.yt_dlp_cookies_base64:
+        return None
+
+    try:
+        cookie_bytes = base64.b64decode(settings.yt_dlp_cookies_base64)
+    except (ValueError, TypeError) as exc:
+        raise ConversionFailedError("YT_DLP_COOKIES_BASE64 is not valid base64.") from exc
+
+    cookies_path = temp_dir / "cookies.txt"
+    cookies_path.write_bytes(cookie_bytes)
+    return str(cookies_path)
+
+
+def build_download_command(
+    url: str,
+    output_template: str,
+    settings: Settings,
+    cookies_file: str | None = None,
+) -> list[str]:
     validate_youtube_url(url)
     ffmpeg_path = resolve_binary_path(settings.ffmpeg_binary)
-    return [
+    command = [
         settings.yt_dlp_binary,
         "--no-playlist",
         "--extract-audio",
@@ -138,10 +169,26 @@ def build_download_command(url: str, output_template: str, settings: Settings) -
         "deno",
         "--ffmpeg-location",
         ffmpeg_path,
-        "--output",
-        output_template,
-        url,
     ]
+
+    if settings.yt_dlp_proxy_url:
+        command.extend(["--proxy", settings.yt_dlp_proxy_url])
+
+    if cookies_file:
+        command.extend(["--cookies", cookies_file])
+
+    extra_args = settings.yt_dlp_extra_args.strip()
+    if extra_args:
+        command.extend(shlex.split(extra_args))
+
+    command.extend(
+        [
+            "--output",
+            output_template,
+            url,
+        ]
+    )
+    return command
 
 
 def convert_youtube_to_mp3(
@@ -155,7 +202,8 @@ def convert_youtube_to_mp3(
 
     temp_dir = Path(tempfile.mkdtemp(prefix="youtube-mp3-"))
     output_template = str(temp_dir / "%(title).120B-%(id)s.%(ext)s")
-    command = build_download_command(url, output_template, settings)
+    cookies_file = _materialize_cookies_file(settings, temp_dir)
+    command = build_download_command(url, output_template, settings, cookies_file)
 
     try:
         result = subprocess.run(

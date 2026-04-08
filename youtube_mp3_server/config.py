@@ -25,6 +25,10 @@ def _read_int(name: str, default: int) -> int:
 class Settings:
     yt_dlp_binary: str = "yt-dlp"
     ffmpeg_binary: str = "ffmpeg"
+    yt_dlp_proxy_url: str | None = None
+    yt_dlp_cookies_file: str | None = None
+    yt_dlp_cookies_base64: str | None = None
+    yt_dlp_extra_args: str = ""
     conversion_timeout_seconds: int = 180
     max_request_bytes: int = 8 * 1024
     route_path: str = "/api/v1/convert"
@@ -35,6 +39,10 @@ def load_settings() -> Settings:
     return Settings(
         yt_dlp_binary=os.getenv("YT_DLP_BINARY", "yt-dlp"),
         ffmpeg_binary=os.getenv("FFMPEG_BINARY", "ffmpeg"),
+        yt_dlp_proxy_url=os.getenv("YT_DLP_PROXY_URL"),
+        yt_dlp_cookies_file=os.getenv("YT_DLP_COOKIES_FILE"),
+        yt_dlp_cookies_base64=os.getenv("YT_DLP_COOKIES_BASE64"),
+        yt_dlp_extra_args=os.getenv("YT_DLP_EXTRA_ARGS", ""),
         conversion_timeout_seconds=_read_int("CONVERSION_TIMEOUT_SECONDS", 180),
         max_request_bytes=_read_int("MAX_REQUEST_BYTES", 8 * 1024),
         route_path=os.getenv("CONVERT_ROUTE_PATH", "/api/v1/convert"),

@@ -12,6 +12,7 @@ from youtube_mp3_server.errors import (
     InvalidYoutubeUrlError,
 )
 from youtube_mp3_server.service import (
+    _materialize_cookies_file,
     build_download_command,
     convert_youtube_to_mp3,
     resolve_binary_path,
@@ -75,6 +76,29 @@ class BuildDownloadCommandTests(unittest.TestCase):
                 ],
             )
 
+    def test_includes_optional_proxy_cookies_and_extra_args(self) -> None:
+        settings = Settings(
+            yt_dlp_binary="yt-dlp-bin",
+            ffmpeg_binary="ffmpeg-bin",
+            yt_dlp_proxy_url="http://proxy.example:8080",
+            yt_dlp_extra_args="--impersonate chrome --extractor-args youtube:player_client=tv",
+        )
+        with patch("youtube_mp3_server.service.shutil.which", return_value="/usr/bin/ffmpeg"):
+            command = build_download_command(
+                "https://youtu.be/dQw4w9WgXcQ",
+                "/tmp/output.%(ext)s",
+                settings,
+                "/tmp/cookies.txt",
+            )
+
+        self.assertIn("--proxy", command)
+        self.assertIn("http://proxy.example:8080", command)
+        self.assertIn("--cookies", command)
+        self.assertIn("/tmp/cookies.txt", command)
+        self.assertIn("--impersonate", command)
+        self.assertIn("chrome", command)
+        self.assertIn("youtube:player_client=tv", command)
+
 
 class ResolveBinaryPathTests(unittest.TestCase):
     def test_resolves_absolute_path(self) -> None:
@@ -87,6 +111,28 @@ class ResolveBinaryPathTests(unittest.TestCase):
         with patch("youtube_mp3_server.service.shutil.which", return_value=None):
             with self.assertRaises(BinaryNotFoundError):
                 resolve_binary_path("missing-binary")
+
+
+class CookiesMaterializationTests(unittest.TestCase):
+    def test_uses_explicit_cookie_file_when_present(self) -> None:
+        settings = Settings(yt_dlp_cookies_file="/tmp/cookies.txt")
+        with tempfile.TemporaryDirectory() as directory:
+            self.assertEqual(
+                _materialize_cookies_file(settings, Path(directory)),
+                "/tmp/cookies.txt",
+            )
+
+    def test_materializes_base64_cookie_content(self) -> None:
+        settings = Settings(yt_dlp_cookies_base64="Y29va2llLWRhdGE=")
+        with tempfile.TemporaryDirectory() as directory:
+            cookie_path = Path(_materialize_cookies_file(settings, Path(directory)))
+            self.assertEqual(cookie_path.read_bytes(), b"cookie-data")
+
+    def test_rejects_invalid_base64_cookie_content(self) -> None:
+        settings = Settings(yt_dlp_cookies_base64="%%invalid%%")
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaises(ConversionFailedError):
+                _materialize_cookies_file(settings, Path(directory))
 
 
 class ConvertYoutubeToMp3Tests(unittest.TestCase):
