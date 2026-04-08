@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: youtube-mp3-server
+    env: docker
+    healthCheckPath: /api/v1/health
+    autoDeploy: true
+    envVars:
+      - key: HOST
+        value: 0.0.0.0
+      - key: YT_DLP_BINARY
+        value: yt-dlp
+      - key: FFMPEG_BINARY
+        value: ffmpeg
