@@ -1,15 +1,43 @@
 # YouTube MP3 Server
 
-This repository now contains a small Python WSGI service that accepts a YouTube URL and returns an MP3 download. The API is designed to be easy to call from n8n and simple to deploy on a host that supports Python WSGI apps.
+A small Python service that accepts a YouTube URL and returns the extracted audio as an MP3 file.
+
+The API is designed to be simple to call from automation tools such as n8n, while remaining easy to run locally or deploy as a containerized web service.
+
+## What It Does
+
+- Accepts a YouTube URL over HTTP
+- Downloads and converts the audio to MP3
+- Returns the MP3 file directly in the response
+- Exposes a health endpoint for deployment checks
 
 ## API
 
-- Health check:
-  - Method: `GET`
-  - Path: `/api/v1/health`
-- Method: `POST`
-- Path: `/api/v1/convert`
-- Request body:
+### `GET /api/v1/health`
+
+Returns runtime status information for the binaries the service depends on.
+
+Example response:
+
+```json
+{
+  "status": "ok",
+  "checks": {
+    "yt_dlp": {
+      "binary": "yt-dlp",
+      "available": true
+    },
+    "ffmpeg": {
+      "binary": "ffmpeg",
+      "available": true
+    }
+  }
+}
+```
+
+### `POST /api/v1/convert`
+
+Accepts a JSON body:
 
 ```json
 {
@@ -18,40 +46,28 @@ This repository now contains a small Python WSGI service that accepts a YouTube 
 }
 ```
 
-- Success response:
-  - `200 OK`
-  - `Content-Type: audio/mpeg`
-  - `Content-Disposition: attachment; filename="...mp3"`
+Success response:
 
-- Error responses:
-  - `400` for invalid JSON or invalid YouTube URLs
-  - `502` for downloader/conversion failures
-  - `503` when a required host binary is unavailable
+- `200 OK`
+- `Content-Type: audio/mpeg`
+- `Content-Disposition: attachment; filename="...mp3"`
 
-The health endpoint returns JSON indicating whether `yt-dlp` and `ffmpeg` are currently available to the app process.
+Error responses:
 
-## Implementation Notes
+- `400 Bad Request` for invalid JSON or invalid YouTube URLs
+- `413` for oversized requests
+- `502 Bad Gateway` when conversion fails
+- `503 Service Unavailable` when `yt-dlp` or `ffmpeg` is unavailable
 
-The server itself uses only the Python standard library. Media conversion is delegated to two host executables:
+## Requirements
 
+- Python 3.11+
 - `yt-dlp`
 - `ffmpeg`
 
-This keeps the repo free of Python package dependencies while still making the service deployable on a standard Python host.
+`yt-dlp` is installed from `requirements.txt`. `ffmpeg` is a native system dependency and must be available on the host, or provided explicitly through `FFMPEG_BINARY`.
 
-## Files
-
-- `youtube_mp3_server/app.py`: WSGI request handling and response formatting
-- `youtube_mp3_server/service.py`: YouTube URL validation and `yt-dlp` execution
-- `wsgi.py`: host-facing WSGI entrypoint
-- `run_server.py`: local development server
-- `tests/`: focused `unittest` coverage
-- `Dockerfile`: container image for Render or any Docker host
-- `render.yaml`: Render service definition with health check wiring
-
-## Running Locally
-
-You need Python 3.11+ and `ffmpeg` available on `PATH`. The project now includes a `requirements.txt` that installs `yt-dlp` into a virtual environment.
+## Local Setup
 
 ### Windows PowerShell
 
@@ -60,8 +76,14 @@ py -m venv .venv
 .\.venv\Scripts\Activate.ps1
 py -m pip install --upgrade pip
 py -m pip install -r requirements.txt
-ffmpeg -version
 py -m unittest discover -s tests
+py run_server.py
+```
+
+If `ffmpeg` is not on `PATH`, set it explicitly before starting the server:
+
+```powershell
+$env:FFMPEG_BINARY = "C:\full\path\to\ffmpeg.exe"
 py run_server.py
 ```
 
@@ -72,89 +94,98 @@ python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
-ffmpeg -version
 python -m unittest discover -s tests
 python run_server.py
 ```
 
-Then send a request like:
+## Testing the Service
 
-```bash
-curl -X POST http://127.0.0.1:8000/api/v1/convert \
-  -H "Content-Type: application/json" \
-  -d "{\"url\":\"https://www.youtube.com/watch?v=dQw4w9WgXcQ\",\"filename\":\"episode\"}" \
-  --output episode.mp3
-```
-
-Check runtime readiness with:
+Health check:
 
 ```bash
 curl http://127.0.0.1:8000/api/v1/health
 ```
 
-## PythonAnywhere Deployment Shape
+Convert a video:
 
-1. Upload this project.
-2. Create a Python web app.
-3. Point the PythonAnywhere WSGI configuration at `wsgi.py`.
-4. Create a virtualenv for the app and install `requirements.txt` so `yt-dlp` is available inside that environment.
-5. Ensure `ffmpeg` is installed and reachable by the app process.
-6. Optionally set:
-   - `YT_DLP_BINARY`
-   - `FFMPEG_BINARY`
-   - `CONVERSION_TIMEOUT_SECONDS`
-   - `MAX_REQUEST_BYTES`
-   - `CONVERT_ROUTE_PATH`
-   - `HEALTH_ROUTE_PATH`
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/convert \
+  -H "Content-Type: application/json" \
+  -d '{"url":"https://www.youtube.com/watch?v=dQw4w9WgXcQ","filename":"sample"}' \
+  --output sample.mp3
+```
 
 ## n8n Integration
 
-Use an HTTP Request node configured to:
+This service works well behind an n8n HTTP Request node.
 
-- send `POST` requests
-- target `/api/v1/convert`
-- send JSON with the `url` field
-- treat the response as a file/binary payload
+Recommended n8n request settings:
 
-Because the server returns raw MP3 bytes, n8n can hand the result directly to downstream storage, email, transcription, or upload nodes.
+- Method: `POST`
+- URL: `https://your-service/api/v1/convert`
+- Body type: JSON
+- Required field: `url`
+- Optional field: `filename`
+- Response format: binary/file
 
-For deployment monitoring, point a simple HTTP check at `/api/v1/health` before sending real conversion traffic.
+Because the API returns the MP3 directly, the output can be sent to storage, email, transcription, or upload steps without needing a second download request.
 
-## Render Deployment
+## Deployment
 
-The easiest deployment path for this project is a Docker-based Render web service. The container image installs `ffmpeg`, installs `yt-dlp` from `requirements.txt`, binds the server to `0.0.0.0`, and exposes `/api/v1/health` for Render health checks.
+### Recommended: Render with Docker
 
-### Local Docker smoke test
+This repository includes:
 
-```bash
-docker build -t youtube-mp3-server .
-docker run --rm -p 10000:10000 youtube-mp3-server
-```
+- `Dockerfile`
+- `render.yaml`
 
-Then verify:
+That deployment path is the simplest because the container installs `ffmpeg` itself, which avoids host-specific setup.
 
-```bash
-curl http://127.0.0.1:10000/api/v1/health
-```
+Basic flow:
 
-### Deploy on Render
-
-1. Push this repository to GitHub.
-2. In Render, create a new Web Service from the repo.
-3. Let Render detect the included `Dockerfile` or `render.yaml`.
-4. Confirm the health check path is `/api/v1/health`.
+1. Push the repository to GitHub.
+2. Create a new Render Web Service from the repo.
+3. Use the included Docker configuration.
+4. Set the health check path to `/api/v1/health`.
 5. Deploy.
 
-After the first deploy, test:
+After deployment:
 
 ```bash
-curl https://your-service-name.onrender.com/api/v1/health
-curl -X POST https://your-service-name.onrender.com/api/v1/convert \
+curl https://your-service.onrender.com/api/v1/health
+curl -X POST https://your-service.onrender.com/api/v1/convert \
   -H "Content-Type: application/json" \
-  -d '{"url":"https://www.youtube.com/watch?v=dQw4w9WgXcQ","filename":"episode"}' \
-  --output episode.mp3
+  -d '{"url":"https://www.youtube.com/watch?v=dQw4w9WgXcQ","filename":"sample"}' \
+  --output sample.mp3
 ```
 
-## Deployment Recommendation
+### Other Hosts
 
-For this codebase, Render with Docker is the easiest host to operate because the runtime is fully defined in the repo. That avoids host-specific setup for `ffmpeg`, which is the awkward part of PythonAnywhere-style deployment.
+Any host that can run a Python web service and provide `ffmpeg` can run this project. The included `wsgi.py` also makes it compatible with traditional WSGI platforms.
+
+## Configuration
+
+The service can be configured with environment variables:
+
+- `YT_DLP_BINARY`
+- `FFMPEG_BINARY`
+- `CONVERSION_TIMEOUT_SECONDS`
+- `MAX_REQUEST_BYTES`
+- `CONVERT_ROUTE_PATH`
+- `HEALTH_ROUTE_PATH`
+- `HOST`
+- `PORT`
+
+## Project Layout
+
+- `youtube_mp3_server/app.py`: HTTP request handling
+- `youtube_mp3_server/service.py`: URL validation, runtime checks, conversion logic
+- `youtube_mp3_server/config.py`: environment-driven settings
+- `run_server.py`: local development server
+- `wsgi.py`: WSGI entrypoint
+- `tests/`: unit tests
+
+## Notes
+
+- The service returns the MP3 file itself, not a JSON link to a file.
+- The current design performs conversion during the request, so very long videos may be a poor fit for low-timeout hosting environments.

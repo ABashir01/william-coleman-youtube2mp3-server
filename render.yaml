@@ -1,7 +1,7 @@
 services:
   - type: web
     name: youtube-mp3-server
-    env: docker
+    runtime: docker
     healthCheckPath: /api/v1/health
     autoDeploy: true
     envVars:
