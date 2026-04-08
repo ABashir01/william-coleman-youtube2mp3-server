@@ -67,6 +67,8 @@ Error responses:
 
 `yt-dlp` is installed from `requirements.txt`. `ffmpeg` is a native system dependency and must be available on the host, or provided explicitly through `FFMPEG_BINARY`.
 
+Current YouTube extraction also benefits from a supported JavaScript runtime. The included Docker deployment installs Deno for that purpose.
+
 ## Local Setup
 
 ### Windows PowerShell
@@ -140,6 +142,7 @@ This repository includes:
 - `render.yaml`
 
 That deployment path is the simplest because the container installs `ffmpeg` itself, which avoids host-specific setup.
+It also installs Deno so `yt-dlp` can handle current YouTube JavaScript challenges more reliably.
 
 Basic flow:
 
@@ -189,3 +192,4 @@ The service can be configured with environment variables:
 
 - The service returns the MP3 file itself, not a JSON link to a file.
 - The current design performs conversion during the request, so very long videos may be a poor fit for low-timeout hosting environments.
+- YouTube may still rate-limit requests from shared cloud outbound IPs. On Render, outbound IP ranges are shared across services in a region, so `HTTP 429` responses can still occur even when the app is configured correctly.

@@ -14,6 +14,7 @@ from youtube_mp3_server.errors import (
 from youtube_mp3_server.service import (
     build_download_command,
     convert_youtube_to_mp3,
+    resolve_binary_path,
     sanitize_filename,
     validate_youtube_url,
 )
@@ -48,28 +49,44 @@ class SanitizeFilenameTests(unittest.TestCase):
 class BuildDownloadCommandTests(unittest.TestCase):
     def test_builds_expected_command(self) -> None:
         settings = Settings(yt_dlp_binary="yt-dlp-bin", ffmpeg_binary="ffmpeg-bin")
-        command = build_download_command(
-            "https://youtu.be/dQw4w9WgXcQ",
-            "/tmp/output.%(ext)s",
-            settings,
-        )
-        self.assertEqual(
-            command,
-            [
-                "yt-dlp-bin",
-                "--no-playlist",
-                "--extract-audio",
-                "--audio-format",
-                "mp3",
-                "--audio-quality",
-                "0",
-                "--ffmpeg-location",
-                "ffmpeg-bin",
-                "--output",
-                "/tmp/output.%(ext)s",
+        with patch("youtube_mp3_server.service.shutil.which", return_value="/usr/bin/ffmpeg"):
+            command = build_download_command(
                 "https://youtu.be/dQw4w9WgXcQ",
-            ],
-        )
+                "/tmp/output.%(ext)s",
+                settings,
+            )
+            self.assertEqual(
+                command,
+                [
+                    "yt-dlp-bin",
+                    "--no-playlist",
+                    "--extract-audio",
+                    "--audio-format",
+                    "mp3",
+                    "--audio-quality",
+                    "0",
+                    "--js-runtimes",
+                    "deno",
+                    "--ffmpeg-location",
+                    "/usr/bin/ffmpeg",
+                    "--output",
+                    "/tmp/output.%(ext)s",
+                    "https://youtu.be/dQw4w9WgXcQ",
+                ],
+            )
+
+
+class ResolveBinaryPathTests(unittest.TestCase):
+    def test_resolves_absolute_path(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            binary = Path(directory) / "ffmpeg.exe"
+            binary.write_text("binary")
+            self.assertEqual(resolve_binary_path(str(binary)), str(binary))
+
+    def test_raises_when_binary_is_missing(self) -> None:
+        with patch("youtube_mp3_server.service.shutil.which", return_value=None):
+            with self.assertRaises(BinaryNotFoundError):
+                resolve_binary_path("missing-binary")
 
 
 class ConvertYoutubeToMp3Tests(unittest.TestCase):

@@ -40,6 +40,24 @@ def is_binary_available(binary_name: str) -> bool:
     return shutil.which(binary_name) is not None
 
 
+def resolve_binary_path(binary_name: str) -> str:
+    binary_path = Path(binary_name)
+    if binary_path.is_absolute():
+        if binary_path.is_file():
+            return str(binary_path)
+        raise BinaryNotFoundError(
+            f"Required executable {binary_name!r} is not available on the host."
+        )
+
+    resolved = shutil.which(binary_name)
+    if resolved:
+        return resolved
+
+    raise BinaryNotFoundError(
+        f"Required executable {binary_name!r} is not available on the host."
+    )
+
+
 def get_runtime_health(settings: Settings) -> dict[str, object]:
     yt_dlp_available = is_binary_available(settings.yt_dlp_binary)
     ffmpeg_available = is_binary_available(settings.ffmpeg_binary)
@@ -107,6 +125,7 @@ def sanitize_filename(filename: str | None, fallback: str) -> str:
 
 def build_download_command(url: str, output_template: str, settings: Settings) -> list[str]:
     validate_youtube_url(url)
+    ffmpeg_path = resolve_binary_path(settings.ffmpeg_binary)
     return [
         settings.yt_dlp_binary,
         "--no-playlist",
@@ -115,8 +134,10 @@ def build_download_command(url: str, output_template: str, settings: Settings) -
         "mp3",
         "--audio-quality",
         "0",
+        "--js-runtimes",
+        "deno",
         "--ffmpeg-location",
-        settings.ffmpeg_binary,
+        ffmpeg_path,
         "--output",
         output_template,
         url,

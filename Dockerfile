@@ -9,8 +9,11 @@ ENV YT_DLP_BINARY=yt-dlp
 ENV FFMPEG_BINARY=ffmpeg
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ffmpeg \
+    && apt-get install -y --no-install-recommends ffmpeg unzip curl \
+    && curl -fsSL https://deno.land/install.sh | sh \
     && rm -rf /var/lib/apt/lists/*
+
+ENV PATH="/root/.deno/bin:${PATH}"
 
 WORKDIR /app
 
